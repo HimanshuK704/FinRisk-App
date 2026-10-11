@@ -1,0 +1,9 @@
+﻿fastapi
+uvicorn[standard]
+pydantic
+pandas
+numpy
+scipy
+yfinance
+matplotlib
+reportlab

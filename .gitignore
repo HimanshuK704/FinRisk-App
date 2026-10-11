@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.mypy_cache/
+
+# Local research and database
+FinRisk_Quantitative_Research_Clean.ipynb
+finrisk.sqlite3
+
+# Python environment and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.mypy_cache/

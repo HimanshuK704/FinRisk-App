@@ -52,8 +52,34 @@ ROOT = Path(__file__).resolve().parent.parent
 # Render can set DB_PATH=/var/data/finrisk.sqlite3 on a persistent disk.
 DB_PATH = Path(os.getenv("DB_PATH", str(ROOT / "finrisk.sqlite3")))
 
-MODEL_VERSION = "baseline-1.1"
+MODEL_VERSION = "baseline-1.2"
+
 DEFAULT_SYMBOLS = ["BTC-USD", "ETH-USD"]
+
+SUPPORTED_USD_SYMBOLS = {
+    # Cryptocurrency
+    "BTC-USD",
+    "ETH-USD",
+    "SOL-USD",
+    "XRP-USD",
+
+    # US equities
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+
+    # US market indices
+    "^GSPC",
+    "^IXIC",
+
+    # USD-priced commodities
+    "CL=F",
+    "BZ=F",
+    "NG=F",
+    "GC=F",
+    "SI=F",
+}
 MONTE_CARLO_SIMULATIONS = 10_000
 MONTE_CARLO_SEED = 42
 
@@ -116,6 +142,16 @@ class ForecastRequest(BaseModel):
             raise ValueError("Symbols must be unique.")
 
         self.symbols = normalized_symbols
+
+        unsupported = sorted(
+            set(self.symbols) - SUPPORTED_USD_SYMBOLS
+        )
+
+        if unsupported:
+            raise ValueError(
+                "Unsupported instrument(s) for the USD-only MVP: "
+                + ", ".join(unsupported)
+            )
 
         normalized_weights = {
             str(symbol).strip().upper(): value
@@ -248,84 +284,121 @@ def load_forecast(forecast_id: str) -> dict | None:
 initialize_db()
 
 
+
 # ---------------------------------------------------------------------
-# Market data
+# Market data and currency normalization
 # ---------------------------------------------------------------------
+
+INR_INSTRUMENTS = {
+    "RELIANCE.NS",
+    "TCS.NS",
+    "^NSEI",
+    "^BSESN",
+}
+
+FX_CONVERSION_SYMBOLS = {
+    "INR": "USDINR=X",
+}
+
+
+def _download_close(symbol: str, period: str) -> pd.Series:
+    """Download one instrument's adjusted closing prices."""
+    try:
+        frame = yf.download(
+            symbol,
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
+    except Exception as exc:
+        raise ValueError(
+            f"Market-data request failed for {symbol}: {exc}"
+        ) from exc
+
+    if frame is None or frame.empty:
+        raise ValueError(f"No market data returned for {symbol}.")
+
+    if isinstance(frame.columns, pd.MultiIndex):
+        if "Close" not in frame.columns.get_level_values(0):
+            raise ValueError(
+                f"No usable closing prices returned for {symbol}."
+            )
+        close = frame["Close"]
+        if isinstance(close, pd.DataFrame):
+            if symbol in close.columns:
+                close = close[symbol]
+            elif close.shape[1] == 1:
+                close = close.iloc[:, 0]
+            else:
+                raise ValueError(
+                    f"Ambiguous closing-price columns for {symbol}."
+                )
+    else:
+        if "Close" not in frame.columns:
+            raise ValueError(
+                f"No usable closing prices returned for {symbol}."
+            )
+        close = frame["Close"]
+        if isinstance(close, pd.DataFrame):
+            if close.shape[1] != 1:
+                raise ValueError(
+                    f"Ambiguous closing-price columns for {symbol}."
+                )
+            close = close.iloc[:, 0]
+
+    close = pd.to_numeric(close, errors="coerce")
+    close = close.replace([np.inf, -np.inf], np.nan).dropna()
+    close.name = symbol
+
+    if close.empty or (close <= 0).any():
+        raise ValueError(
+            f"Invalid or non-positive prices returned for {symbol}."
+        )
+
+    return close
+
 
 def fetch_prices(
     symbols: list[str],
     period: str,
 ) -> pd.DataFrame:
-    series = []
-
-    for symbol in symbols:
-        try:
-            frame = yf.download(
-                symbol,
-                period=period,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except Exception as exc:
-            raise ValueError(
-                f"Market-data request failed for {symbol}: {exc}"
-            ) from exc
-
-        if frame is None or frame.empty:
-            raise ValueError(
-                f"No market data returned for {symbol}."
-            )
-
-        # yfinance may return flat or MultiIndex columns.
-        if isinstance(frame.columns, pd.MultiIndex):
-            level0 = frame.columns.get_level_values(0)
-
-            if "Close" not in level0:
-                raise ValueError(
-                    "No usable adjusted closing prices returned "
-                    f"for {symbol}."
-                )
-
-            close_frame = frame["Close"]
-
-            if isinstance(close_frame, pd.DataFrame):
-                if symbol in close_frame.columns:
-                    close = close_frame[symbol]
-                elif close_frame.shape[1] == 1:
-                    close = close_frame.iloc[:, 0]
-                else:
-                    raise ValueError(
-                        f"Ambiguous closing-price columns for {symbol}."
-                    )
-            else:
-                close = close_frame
-
-        else:
-            if "Close" not in frame.columns:
-                raise ValueError(
-                    "No usable adjusted closing prices returned "
-                    f"for {symbol}."
-                )
-
-            close = frame["Close"]
-
-            if isinstance(close, pd.DataFrame):
-                if close.shape[1] != 1:
-                    raise ValueError(
-                        f"Ambiguous closing-price columns for {symbol}."
-                    )
-                close = close.iloc[:, 0]
-
-        close = pd.to_numeric(close, errors="coerce")
-        close.name = symbol
-        series.append(close)
-
-    if not series:
+    """Return aligned USD-denominated prices for supported instruments."""
+    if not symbols:
         raise ValueError("No instruments were selected.")
 
-    prices = pd.concat(series, axis=1).sort_index()
+    raw_prices = {
+        symbol: _download_close(symbol, period)
+        for symbol in symbols
+    }
+
+    # USD/INR is quoted as INR per USD. Therefore INR prices are
+    # divided by this rate to obtain their USD-equivalent prices.
+    inr_symbols = [
+        symbol for symbol in symbols
+        if symbol in INR_INSTRUMENTS
+    ]
+
+    if inr_symbols:
+        usd_inr = _download_close(
+            FX_CONVERSION_SYMBOLS["INR"], period
+        ).rename("USDINR=X")
+
+        for symbol in inr_symbols:
+            aligned_inr, aligned_fx = raw_prices[symbol].align(
+                usd_inr, join="inner"
+            )
+            raw_prices[symbol] = (
+                aligned_inr / aligned_fx
+            ).rename(symbol)
+
+    prices = pd.concat(
+        [raw_prices[symbol] for symbol in symbols],
+        axis=1,
+        join="inner",
+    ).sort_index()
+
     prices = prices.replace(
         [np.inf, -np.inf], np.nan
     ).dropna(how="any")
@@ -336,10 +409,14 @@ def fetch_prices(
             "Choose another period or supported instruments."
         )
 
+    if not np.isfinite(prices.to_numpy()).all():
+        raise ValueError("Non-finite prices detected.")
+
     if (prices <= 0).any().any():
         raise ValueError("Prices must be positive.")
 
     return prices
+
 
 
 # ---------------------------------------------------------------------

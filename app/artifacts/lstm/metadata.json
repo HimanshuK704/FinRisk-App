@@ -1,0 +1,96 @@
+{
+  "model_name": "FinRisk LSTM Next-Day Volatility Proxy",
+  "model_version": "lstm-1.0",
+  "trained_at_utc": "2026-11-18T09:30:42.205031+00:00",
+  "symbols": [
+    "BTC-USD",
+    "AAPL"
+  ],
+  "period_requested": "5y",
+  "data_start": "2021-11-19",
+  "data_end": "2026-11-17",
+  "aligned_return_observations": 1253,
+  "sequence_length": 30,
+  "features": [
+    "BTC-USD_daily_return",
+    "AAPL_daily_return"
+  ],
+  "target_definition": "Next trading day's absolute close-to-close return |r[t+1]| per asset. Daily volatility proxy, not intraday realized volatility.",
+  "split": {
+    "train": 856,
+    "validation": 183,
+    "test": 184,
+    "method": "chronological 70/15/15"
+  },
+  "architecture": {
+    "input_shape": [
+      30,
+      2
+    ],
+    "lstm_units": 64,
+    "dropout": 0.2,
+    "dense_units": 32,
+    "activation": "ReLU",
+    "output_units": 2,
+    "optimizer": "Adam",
+    "loss": "MSE",
+    "batch_size": 32,
+    "max_epochs": 20,
+    "epochs_completed": 17,
+    "early_stopping_patience": 4,
+    "seed": 42
+  },
+  "scaler": {
+    "x_mean": [
+      0.0010805695783346891,
+      0.00040938498568721116
+    ],
+    "x_scale": [
+      0.03162373602390289,
+      0.01864462159574032
+    ],
+    "y_mean": [
+      0.02234758995473385,
+      0.013147715479135513
+    ],
+    "y_scale": [
+      0.022119149565696716,
+      0.01321228127926588
+    ],
+    "fit_on": "training split only"
+  },
+  "test_metrics": {
+    "lstm": {
+      "mae": 0.010409670881927013,
+      "rmse": 0.013892878778278828,
+      "per_asset": {
+        "BTC-USD": {
+          "mae": 0.013306612148880959,
+          "rmse": 0.01627875305712223
+        },
+        "AAPL": {
+          "mae": 0.007512728683650494,
+          "rmse": 0.01100119762122631
+        }
+      }
+    },
+    "rolling_volatility_baseline": {
+      "mae": 0.01037709107744003,
+      "rmse": 0.013965646684941572,
+      "per_asset": {
+        "BTC-USD": {
+          "mae": 0.012259438818844632,
+          "rmse": 0.015992539367700585
+        },
+        "AAPL": {
+          "mae": 0.00849474333603543,
+          "rmse": 0.011589532312815131
+        }
+      }
+    }
+  },
+  "test_dates": {
+    "start": "2026-02-26",
+    "end": "2026-11-17"
+  }
+}

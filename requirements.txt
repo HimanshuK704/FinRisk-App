@@ -1,4 +1,4 @@
-﻿fastapi
+fastapi
 uvicorn[standard]
 pydantic
 pandas
@@ -7,3 +7,4 @@ scipy
 yfinance
 matplotlib
 reportlab
+torch>=2.2

@@ -92,6 +92,9 @@ app = FastAPI(
     version="1.1.0",
 )
 
+from app.lstm_api import router as lstm_router
+app.include_router(lstm_router)
+
 
 # Allow the frontend to call the API.
 # Restrict FINRISK_FRONTEND_ORIGIN to your deployed frontend URL.
@@ -1131,4 +1134,5 @@ def build_pdf_report(record: dict) -> bytes:
 
     doc.build(story)
     return buffer.getvalue()
+
 

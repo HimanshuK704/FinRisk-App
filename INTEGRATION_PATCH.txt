@@ -1,0 +1,7 @@
+INTEGRATION PATCH
+1. Copy app/lstm_engine.py and app/lstm_api.py into your existing app/ folder.
+2. Add to requirements.txt: torch>=2.2
+3. In app/main.py, after app = FastAPI(...) is created, add:
+   from app.lstm_api import router as lstm_router
+   app.include_router(lstm_router)
+Do not replace any existing app code or routes.
